@@ -8,6 +8,7 @@ struct Page
 {
     int pageNum;
     int dirtyBit;
+    int referenceBit;
 };
 
 struct Queue {
@@ -37,13 +38,15 @@ struct QueueNode* new_node(struct Page page) {
 }
 
 // function prototypes
-void enqueue(struct Queue* queue, struct Page page);
-struct Page dequeue(struct Queue* queue);
-int* FIFO(struct Page *references, int ref_length, int frame);
+void enqueue(struct Queue *queue, struct Page page);
+struct Page dequeue(struct Queue *queue);
+int *FIFO(struct Page *references, int ref_length, int frame);
 bool inQueue(struct Queue *queue, struct Page *this_page);
 void FIFO_output(struct Page *references);
-int* OPT(struct Page *references, int ref_length, int frame);
+int *OPT(struct Page *references, int ref_length, int frame);
 void OPT_output(struct Page *references);
+int *secondChance(struct Page *references, int ref_length, int frame);
+void secondChance_output(struct Page *references);
 
 
 // constants
@@ -255,3 +258,86 @@ void OPT_output(struct Page *references) {
 }
 
 //LRU: replaces the page that has not been used for the longest period of time
+
+
+// Second Chance
+
+int *secondChance(struct Page *references, int ref_length, int frame)
+{
+    struct Queue *pages_queue = new_queue();
+    int page_faults = 0;
+    int write_backs = 0;
+
+    for (int i = 0; i < ref_length; i++)
+    {
+        struct Page *this_page = &references[i];
+        int this_pn = this_page->pageNum;
+        int this_db = this_page->dirtyBit;
+
+        if (inQueue(pages_queue, this_page))
+        { // if reference page is in queue, set reference bit to 1
+            struct QueueNode *node = pages_queue->front;
+            while (node != NULL)
+            {
+                if (node->page.pageNum == this_pn) //if reference page is current node in queue
+                {
+                    node->page.referenceBit = 1; // set reference bit to 1
+                    break;
+                }
+                node = node->next; // increment until node is found
+            }
+        }
+        else
+        {
+            // if page isn't in queue, page fault occurs
+            page_faults++;
+
+            if (pages_queue->size == frame)
+            {
+                // need to check for second chance if full
+                while (true)
+                {
+                    struct Page old_page = dequeue(pages_queue); 
+                    if (old_page.referenceBit == 0) //if reference bit is 0 
+                    {
+                        int dirty_bit = old_page.dirtyBit; 
+                        if (dirty_bit == 1) // count a write back if bit to be replaced is dirty
+                        {
+                            write_backs++;
+                        }
+                        break; //break as page has been dequed
+                    }
+                    else // otherwise we change the reference bit from 1 to 0 and re enqueue the page until a page with a bit of 0 is found
+                    {
+                        old_page.referenceBit = 0;
+                        enqueue(pages_queue, old_page);
+                    }
+                }
+            }
+
+        //  if page is not in queue and queue isn't full, set reference bit to 1 and enqueue
+            this_page->referenceBit = 1;
+            enqueue(pages_queue, *this_page);
+        }
+    }
+    int *pfwb = (int *)malloc(2 * sizeof(int)); 
+    pfwb[0] = page_faults;
+    pfwb[1] = write_backs;
+    return pfwb;
+}
+
+void secondChance_output(struct Page *references)
+{
+    printf("Second Chance\n");
+    printf("%s", p1_table_line1);
+    printf("%s", p1_table_line2);
+    printf("%s", p1_table_line1);
+    for (int i = 1; i < 101; i++)
+    {
+        int *curr_array = secondChance(references, ref_length, i);
+        int pf = curr_array[0];
+        int wb = curr_array[1];
+        printf(p1_table_line3, i, pf, wb);
+        printf("%s", p1_table_line1);
+    }
+}

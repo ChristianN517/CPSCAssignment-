@@ -60,6 +60,8 @@ char cmp_string[] = "OPT";
 char p1_table_line1[] = "+--------+-------------+-------------+\n";
 char p1_table_line2[] = "| Frames | Page Faults | Write backs |\n";
 char p1_table_line3[] = "| %6d | %11d | %11d |\n";
+char p1_table_line4[] = "| n | Page Faults | Write backs |\n";
+char p1_table_line5[] = "| m | Page Faults | Write backs |\n";
 
 int main()
 // parameters - int argc, char *argv[]
@@ -390,14 +392,32 @@ void secondChance_output(struct Page *references)
 {
     printf("Second Chance\n");
     printf("%s", p1_table_line1);
-    printf("%s", p1_table_line2);
+    printf("%s", p1_table_line5);
     printf("%s", p1_table_line1);
+    // N fixed to 8, frame fixed to 50 and m incremented from 1 to 100
     for (int i = 1; i < 101; i++)
     {
-        int *curr_array = secondChance(references, ref_length, i, 10, 32);
+        int *curr_array = secondChance(references, ref_length, 50, 8, i);
         int pf = curr_array[0];
         int wb = curr_array[1];
         printf(p1_table_line3, i, pf, wb);
         printf("%s", p1_table_line1);
     }
+
+    printf("Second Chance\n");
+    printf("%s", p1_table_line1);
+    printf("%s", p1_table_line4);
+    printf("%s", p1_table_line1);
+
+     // M fixed to 10, frame fixed to 50 and m incremented from 1 to 32
+     for (int i = 1; i < 33; i++)
+    {
+        int *curr_array = secondChance(references, ref_length, 50, i, 10);
+        int pf = curr_array[0];
+        int wb = curr_array[1];
+        printf(p1_table_line3, i, pf, wb);
+        printf("%s", p1_table_line1);
+    }
+
+
 }

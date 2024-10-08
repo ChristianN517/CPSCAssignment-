@@ -8,30 +8,34 @@ struct Page
 {
     int pageNum;
     int dirtyBit;
-    int referenceBit;
+    unsigned int referenceBits; // only used for second chance
 };
 
-struct Queue {
+struct Queue
+{
     int size;
-    struct QueueNode* front;
-    struct QueueNode* rear;
+    struct QueueNode *front;
+    struct QueueNode *rear;
 };
 
-struct QueueNode {
+struct QueueNode
+{
     struct Page page;
-    struct QueueNode* next;
+    struct QueueNode *next;
 };
 
-struct Queue* new_queue() {
-    struct Queue* queue = (struct Queue*)malloc(sizeof(struct Queue));
+struct Queue *new_queue()
+{
+    struct Queue *queue = (struct Queue *)malloc(sizeof(struct Queue));
     queue->front = NULL;
     queue->rear = NULL;
     queue->size = 0;
     return queue;
 }
 
-struct QueueNode* new_node(struct Page page) {
-    struct QueueNode* new = (struct QueueNode*)malloc(sizeof(struct QueueNode));
+struct QueueNode *new_node(struct Page page)
+{
+    struct QueueNode *new = (struct QueueNode *)malloc(sizeof(struct QueueNode));
     new->page = page;
     new->next = NULL;
     return new;
@@ -45,31 +49,31 @@ bool inQueue(struct Queue *queue, struct Page *this_page);
 void FIFO_output(struct Page *references);
 int *OPT(struct Page *references, int ref_length, int frame);
 void OPT_output(struct Page *references);
-int *secondChance(struct Page *references, int ref_length, int frame);
+int *secondChance(struct Page *references, int ref_length, int frame, int bitSize, int interruptNum);
+void bitShift(struct Queue *clockQueue);
 void secondChance_output(struct Page *references);
-
 
 // constants
 int ref_length = 15050; // make it 150 for now so the data is manageable
-//int frame_count = 100;
+// int frame_count = 100;
 char cmp_string[] = "OPT";
 char p1_table_line1[] = "+--------+-------------+-------------+\n";
 char p1_table_line2[] = "| Frames | Page Faults | Write backs |\n";
 char p1_table_line3[] = "| %6d | %11d | %11d |\n";
 
 int main()
-//parameters - int argc, char *argv[]
+// parameters - int argc, char *argv[]
 {
-    //if (argc < 2)
+    // if (argc < 2)
     //{
-        //printf("Usage: %s <input_file>\n", argv[0]);
-        //return 1;
+    // printf("Usage: %s <input_file>\n", argv[0]);
+    // return 1;
     //}
 
     FILE *file = fopen("input_file.csv", "r");
     if (!file)
     {
-        //printf("Error opening file %s\n", argv[1]);
+        // printf("Error opening file %s\n", argv[1]);
         return 1;
     }
 
@@ -91,54 +95,67 @@ int main()
             break; // stop once array is full
     }
 
-    if (strcmp(cmp_string, "FIFO") == 0) {
-        //argv[1]
+    if (strcmp(cmp_string, "FIFO") == 0)
+    {
+        // argv[1]
         FIFO_output(references);
-    } else if (strcmp(cmp_string, "OPT") == 0)
-        OPT_output(references);
+    }
+    else if (strcmp(cmp_string, "OPT") == 0)
+        secondChance_output(references);
 
     fclose(file);
     return 0;
 }
 
-
-//Algos
+// Algos
 
 // queue algorithms - enqueue and dequeue
-void enqueue(struct Queue* queue, struct Page page) {
-    struct QueueNode* new = new_node(page);
-    if (queue->rear == NULL) {
+void enqueue(struct Queue *queue, struct Page page)
+{
+    struct QueueNode *new = new_node(page);
+    if (queue->rear == NULL)
+    {
         queue->front = new;
         queue->rear = new;
-    } else {
+    }
+    else
+    {
         queue->rear->next = new;
         queue->rear = new;
     }
     queue->size++;
 }
 
-struct Page dequeue(struct Queue* queue) {
-    if (queue->front == NULL) {
+struct Page dequeue(struct Queue *queue)
+{
+    if (queue->front == NULL)
+    {
         printf("Error - empty queue.");
     }
 
-    struct QueueNode* temp_node = queue->front;
+    struct QueueNode *temp_node = queue->front;
     struct Page page = temp_node->page;
     queue->front = queue->front->next;
 
-    if (queue->front == NULL) { queue->rear = NULL; }
+    if (queue->front == NULL)
+    {
+        queue->rear = NULL;
+    }
 
     free(temp_node);
     queue->size--;
     return page;
 }
 
-bool inQueue(struct Queue *queue, struct Page *this_page) {
+bool inQueue(struct Queue *queue, struct Page *this_page)
+{
     struct QueueNode *node = queue->front;
-    while (node != NULL) {
+    while (node != NULL)
+    {
         int node_num = node->page.pageNum;
         int comp_num = this_page->pageNum;
-        if (node_num == comp_num) {
+        if (node_num == comp_num)
+        {
             return true;
         }
         node = node->next;
@@ -146,123 +163,9 @@ bool inQueue(struct Queue *queue, struct Page *this_page) {
     return false;
 }
 
-//FIFO: replaces the page that has been in memory the longest
+// FIFO: replaces the page that has been in memory the longest
 
-int* FIFO(struct Page *references, int ref_length, int frame) {
-    struct Queue* pages_queue = new_queue();
-    int page_faults = 0;
-    int write_backs = 0;
-
-    for (int i = 0; i < ref_length; i++) {
-        struct Page *this_page = &references[i];
-        int this_pn = this_page->pageNum;
-        int this_db = this_page->dirtyBit;
-        
-        if (inQueue(pages_queue, this_page) == false) {
-            page_faults++;
-
-            if (pages_queue->size == frame) {
-                struct Page old_page = dequeue(pages_queue);
-                int dirty_bit = old_page.dirtyBit;
-                if (dirty_bit == 1) { write_backs++; }
-            }
-            enqueue(pages_queue, *this_page);
-        }
-    }
-    int* pfwb = (int*)malloc(2 * sizeof(int));
-    pfwb[0] = page_faults;
-    pfwb[1] = write_backs;
-    return pfwb;
-}
-
-void FIFO_output(struct Page *references) {
-    printf("FIFO\n");
-    printf("%s", p1_table_line1);
-    printf("%s", p1_table_line2);
-    printf("%s", p1_table_line1);
-    for (int i = 1; i < 101; i++) {
-        int* curr_array = FIFO(references, ref_length, i);
-        int pf = curr_array[0];
-        int wb = curr_array[1];
-        printf(p1_table_line3, i, pf, wb);
-        printf("%s", p1_table_line1);
-    }
-}
-
-//Optimal:  replaces the page that will not be used for the longest period in the future
-int* OPT(struct Page *references, int ref_length, int frame) {
-    struct Queue* queue = new_queue();
-    int page_faults = 0;
-    int write_backs = 0;
-
-    for (int i =0; i < ref_length; i++) {
-        struct Page *this_page = &references[i];
-
-        if (inQueue(queue, this_page) == false) {
-            page_faults++;
-
-            if (queue->size == frame) {
-                int replace_with = -1;
-                int furthest_away = -1;
-
-                struct QueueNode* node = queue->front;
-                for (int j = 0; j < queue->size; j++) {
-                    struct Page curr_page = node->page;
-                    int used_next = -1;
-
-                    for (int k = i + 1; k < ref_length; k++) {
-                        struct Page comp_page = references[k];
-                        if (comp_page.pageNum == curr_page.pageNum) {
-                            used_next = k;
-                            break;
-                        }
-                    }
-
-                    if (used_next == 1) {
-                        replace_with = j;
-                        break;
-                    } 
-                    if (used_next > furthest_away) {
-                        furthest_away = used_next;
-                        replace_with = j;
-                    }
-
-                    node = node->next;
-                }
-
-                struct Page old_page = dequeue(queue);
-                if (old_page.dirtyBit == 1) { write_backs++; }
-            }
-        }
-        enqueue(queue, *this_page);
-    }
-
-    int* pfwb = (int*)malloc(2 * sizeof(int));
-    pfwb[0] = page_faults;
-    pfwb[1] = write_backs;
-    return pfwb;
-}
-
-void OPT_output(struct Page *references) {
-    printf("OPT\n");
-    printf("%s", p1_table_line1);
-    printf("%s", p1_table_line2);
-    printf("%s", p1_table_line1);
-    for (int i = 1; i < 101; i++) {
-        int* curr_array = OPT(references, ref_length, i);
-        int pf = curr_array[0];
-        int wb = curr_array[1];
-        printf(p1_table_line3, i, pf, wb);
-        printf("%s", p1_table_line1);
-    }
-}
-
-//LRU: replaces the page that has not been used for the longest period of time
-
-
-// Second Chance
-
-int *secondChance(struct Page *references, int ref_length, int frame)
+int *FIFO(struct Page *references, int ref_length, int frame)
 {
     struct Queue *pages_queue = new_queue();
     int page_faults = 0;
@@ -274,14 +177,151 @@ int *secondChance(struct Page *references, int ref_length, int frame)
         int this_pn = this_page->pageNum;
         int this_db = this_page->dirtyBit;
 
+        if (inQueue(pages_queue, this_page) == false)
+        {
+            page_faults++;
+
+            if (pages_queue->size == frame)
+            {
+                struct Page old_page = dequeue(pages_queue);
+                int dirty_bit = old_page.dirtyBit;
+                if (dirty_bit == 1)
+                {
+                    write_backs++;
+                }
+            }
+            enqueue(pages_queue, *this_page);
+        }
+    }
+    int *pfwb = (int *)malloc(2 * sizeof(int));
+    pfwb[0] = page_faults;
+    pfwb[1] = write_backs;
+    return pfwb;
+}
+
+void FIFO_output(struct Page *references)
+{
+    printf("FIFO\n");
+    printf("%s", p1_table_line1);
+    printf("%s", p1_table_line2);
+    printf("%s", p1_table_line1);
+    for (int i = 1; i < 101; i++)
+    {
+        int *curr_array = FIFO(references, ref_length, i);
+        int pf = curr_array[0];
+        int wb = curr_array[1];
+        printf(p1_table_line3, i, pf, wb);
+        printf("%s", p1_table_line1);
+    }
+}
+
+// Optimal:  replaces the page that will not be used for the longest period in the future
+int *OPT(struct Page *references, int ref_length, int frame)
+{
+    struct Queue *queue = new_queue();
+    int page_faults = 0;
+    int write_backs = 0;
+
+    for (int i = 0; i < ref_length; i++)
+    {
+        struct Page *this_page = &references[i];
+
+        if (inQueue(queue, this_page) == false)
+        {
+            page_faults++;
+
+            if (queue->size == frame)
+            {
+                int replace_with = -1;
+                int furthest_away = -1;
+
+                struct QueueNode *node = queue->front;
+                for (int j = 0; j < queue->size; j++)
+                {
+                    struct Page curr_page = node->page;
+                    int used_next = -1;
+
+                    for (int k = i + 1; k < ref_length; k++)
+                    {
+                        struct Page comp_page = references[k];
+                        if (comp_page.pageNum == curr_page.pageNum)
+                        {
+                            used_next = k;
+                            break;
+                        }
+                    }
+
+                    if (used_next == 1)
+                    {
+                        replace_with = j;
+                        break;
+                    }
+                    if (used_next > furthest_away)
+                    {
+                        furthest_away = used_next;
+                        replace_with = j;
+                    }
+
+                    node = node->next;
+                }
+
+                struct Page old_page = dequeue(queue);
+                if (old_page.dirtyBit == 1)
+                {
+                    write_backs++;
+                }
+            }
+        }
+        enqueue(queue, *this_page);
+    }
+
+    int *pfwb = (int *)malloc(2 * sizeof(int));
+    pfwb[0] = page_faults;
+    pfwb[1] = write_backs;
+    return pfwb;
+}
+
+void OPT_output(struct Page *references)
+{
+    printf("OPT\n");
+    printf("%s", p1_table_line1);
+    printf("%s", p1_table_line2);
+    printf("%s", p1_table_line1);
+    for (int i = 1; i < 101; i++)
+    {
+        int *curr_array = OPT(references, ref_length, i);
+        int pf = curr_array[0];
+        int wb = curr_array[1];
+        printf(p1_table_line3, i, pf, wb);
+        printf("%s", p1_table_line1);
+    }
+}
+
+// LRU: replaces the page that has not been used for the longest period of time
+
+// Second Chance
+
+int *secondChance(struct Page *references, int ref_length, int frame, int bitSize, int interruptNum)
+{
+    struct Queue *pages_queue = new_queue(); //circular queue to simulate clock
+    int page_faults = 0;
+    int write_backs = 0;
+    int interruptCount = 0;
+
+    for (int i = 0; i < ref_length; i++)
+    {
+        struct Page *this_page = &references[i]; //current page
+        int this_pn = this_page->pageNum;
+        int this_db = this_page->dirtyBit;
+
         if (inQueue(pages_queue, this_page))
-        { // if reference page is in queue, set reference bit to 1
+        { // if reference page is in queue, set most significant bit
             struct QueueNode *node = pages_queue->front;
             while (node != NULL)
             {
                 if (node->page.pageNum == this_pn) //if reference page is current node in queue
                 {
-                    node->page.referenceBit = 1; // set reference bit to 1
+                    node->page.referenceBits |= (1 << (bitSize - 1)); // code from tutorial for most significant bit
                     break;
                 }
                 node = node->next; // increment until node is found
@@ -298,32 +338,52 @@ int *secondChance(struct Page *references, int ref_length, int frame)
                 while (true)
                 {
                     struct Page old_page = dequeue(pages_queue); 
-                    if (old_page.referenceBit == 0) //if reference bit is 0 
+                    //check if msb is 0
+                    if ((old_page.referenceBits & (1 << (bitSize - 1)))== 0) //if reference bit is 0 
                     {
                         int dirty_bit = old_page.dirtyBit; 
                         if (dirty_bit == 1) // count a write back if bit to be replaced is dirty
                         {
                             write_backs++;
                         }
-                        break; //break as page has been dequed
+                        enqueue(pages_queue, *this_page); //enqueue new page 
+                        break; // break as page has been  already been dequed
                     }
                     else // otherwise we change the reference bit from 1 to 0 and re enqueue the page until a page with a bit of 0 is found
                     {
-                        old_page.referenceBit = 0;
+                        old_page.referenceBits &= ~(1 << (bitSize - 1));
                         enqueue(pages_queue, old_page);
                     }
                 }
+            } else {
+                //  if page is not in queue and queue isn't full, set most significant bit to 1 and enqueue
+                this_page ->referenceBits |= (1 << (bitSize - 1));
+                enqueue(pages_queue, *this_page);
             }
 
-        //  if page is not in queue and queue isn't full, set reference bit to 1 and enqueue
-            this_page->referenceBit = 1;
-            enqueue(pages_queue, *this_page);
+          
+
+            interruptCount++; //update interrupt count and check if it meets criteria yet
+            if (interruptCount == interruptNum){
+                bitShift(pages_queue); // if so, bit shift every element in the queue by 1 and reset interrupt count
+                interruptCount = 0;
+            }
         }
     }
     int *pfwb = (int *)malloc(2 * sizeof(int)); 
     pfwb[0] = page_faults;
     pfwb[1] = write_backs;
     return pfwb;
+}
+
+//Will need function to simulate bit shifting after m page references
+void bitShift(struct Queue *clockQueue){
+    struct QueueNode *node = clockQueue->front;
+    while (node != NULL)
+        {
+        node->page.referenceBits >>= 1; //shift bits for each page in queue
+        node = node->next;
+}
 }
 
 void secondChance_output(struct Page *references)
@@ -334,7 +394,7 @@ void secondChance_output(struct Page *references)
     printf("%s", p1_table_line1);
     for (int i = 1; i < 101; i++)
     {
-        int *curr_array = secondChance(references, ref_length, i);
+        int *curr_array = secondChance(references, ref_length, i, 10, 32);
         int pf = curr_array[0];
         int wb = curr_array[1];
         printf(p1_table_line3, i, pf, wb);

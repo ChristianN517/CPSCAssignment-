@@ -353,7 +353,7 @@ int *secondChance(struct Page *references, int ref_length, int frame, int bitSiz
                     }
                     else // otherwise we change the reference bit from 1 to 0 and re enqueue the page until a page with a bit of 0 is found
                     {
-                        old_page.referenceBits &= ~(1 << (bitSize - 1));
+                        old_page.referenceBits -= (1 << (bitSize - 1));
                         enqueue(pages_queue, old_page);
                     }
                 }

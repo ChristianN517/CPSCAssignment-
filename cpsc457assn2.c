@@ -49,6 +49,8 @@ bool inQueue(struct Queue *queue, struct Page *this_page);
 void FIFO_output(struct Page *references);
 int *OPT(struct Page *references, int ref_length, int frame);
 void OPT_output(struct Page *references);
+int *LRU(struct Page *references, int ref_length, int frame);
+void LRU_output(struct Page *references);
 int *secondChance(struct Page *references, int ref_length, int frame, int bitSize, int interruptNum);
 void bitShift(struct Queue *clockQueue);
 void secondChance_output(struct Page *references);
@@ -56,7 +58,7 @@ void secondChance_output(struct Page *references);
 // constants
 int ref_length = 15050; // make it 150 for now so the data is manageable
 // int frame_count = 100;
-char cmp_string[] = "OPT";
+char cmp_string[] = "FIFO";
 char p1_table_line1[] = "+--------+-------------+-------------+\n";
 char p1_table_line2[] = "| Frames | Page Faults | Write backs |\n";
 char p1_table_line3[] = "| %6d | %11d | %11d |\n";
@@ -103,7 +105,17 @@ int main()
         FIFO_output(references);
     }
     else if (strcmp(cmp_string, "OPT") == 0)
+    {
+        OPT_output(references);
+    }
+    else if (strcmp(cmp_string, "CLK") == 0)
+    {
         secondChance_output(references);
+    }
+    else if (strcmp(cmp_string, "LRU") == 0)
+    {
+        LRU_output(references);
+    }
 
     fclose(file);
     return 0;
@@ -193,6 +205,22 @@ int *FIFO(struct Page *references, int ref_length, int frame)
                 }
             }
             enqueue(pages_queue, *this_page);
+        }
+        else
+        {
+            struct QueueNode *curr = pages_queue->front;
+            while (curr != NULL)
+            {
+                if (curr->page.pageNum == this_pn)
+                {
+                    if (curr->page.dirtyBit == 0 && this_db == 1)
+                    {
+                        curr->page.dirtyBit = 1;
+                    }
+                    break;
+                }
+                curr = curr->next;
+            }
         }
     }
     int *pfwb = (int *)malloc(2 * sizeof(int));
@@ -300,19 +328,109 @@ void OPT_output(struct Page *references)
 }
 
 // LRU: replaces the page that has not been used for the longest period of time
+int *LRU(struct Page *references, int ref_length, int frame)
+{
+    struct Queue *queue = new_queue();
+    int page_faults = 0;
+    int write_backs = 0;
+
+    for (int i = 0; i < ref_length; i++)
+    {
+        struct Page *this_page = &references[i];
+
+        if (inQueue(queue, this_page) == true)
+        {
+            struct QueueNode *node = queue->front;
+            struct QueueNode *prev = NULL;
+
+            while (node != NULL)
+            {
+                int this_pn = this_page->pageNum;
+                int node_pn = node->page.pageNum;
+
+                if (this_pn == node_pn)
+                {
+                    if (prev != NULL)
+                    {
+                        prev->next = node->next;
+                    }
+                    else
+                    {
+                        queue->front = node->next;
+                    }
+
+                    if (node == queue->rear)
+                    {
+                        queue->rear = prev;
+                    }
+
+                    node->next = NULL;
+                    if (queue->rear)
+                    {
+                        queue->rear->next = node;
+                    }
+
+                    queue->rear = node;
+                    break;
+                }
+
+                prev = node;
+                node = node->next;
+            }
+        }
+        else
+        {
+            page_faults++;
+
+            if (queue->size == frame)
+            {
+                if (queue->front != NULL)
+                {
+                    if (queue->front->page.dirtyBit == 1)
+                    {
+                        write_backs++;
+                    }
+                    dequeue(queue);
+                }
+            }
+            enqueue(queue, *this_page);
+        }
+    }
+
+    int *pfwb = (int *)malloc(2 * sizeof(int));
+    pfwb[0] = page_faults;
+    pfwb[1] = write_backs;
+    return pfwb;
+}
+
+void LRU_output(struct Page *references)
+{
+    printf("LRU\n");
+    printf("%s", p1_table_line1);
+    printf("%s", p1_table_line2);
+    printf("%s", p1_table_line1);
+    for (int i = 1; i < 101; i++)
+    {
+        int *curr_array = LRU(references, ref_length, i);
+        int pf = curr_array[0];
+        int wb = curr_array[1];
+        printf(p1_table_line3, i, pf, wb);
+        printf("%s", p1_table_line1);
+    }
+}
 
 // Second Chance
 
 int *secondChance(struct Page *references, int ref_length, int frame, int bitSize, int interruptNum)
 {
-    struct Queue *pages_queue = new_queue(); //circular queue to simulate clock
+    struct Queue *pages_queue = new_queue(); // circular queue to simulate clock
     int page_faults = 0;
     int write_backs = 0;
     int interruptCount = 0;
 
     for (int i = 0; i < ref_length; i++)
     {
-        struct Page *this_page = &references[i]; //current page
+        struct Page *this_page = &references[i]; // current page
         int this_pn = this_page->pageNum;
         int this_db = this_page->dirtyBit;
 
@@ -321,8 +439,14 @@ int *secondChance(struct Page *references, int ref_length, int frame, int bitSiz
             struct QueueNode *node = pages_queue->front;
             while (node != NULL)
             {
-                if (node->page.pageNum == this_pn) //if reference page is current node in queue
+                if (node->page.pageNum == this_pn) // if reference page is current node in queue
                 {
+
+                    if (node->page.dirtyBit == 0 && this_db == 1)
+                    {
+                        node->page.dirtyBit = 1;
+                    }
+
                     node->page.referenceBits |= (1 << (bitSize - 1)); // code from tutorial for most significant bit
                     break;
                 }
@@ -339,58 +463,60 @@ int *secondChance(struct Page *references, int ref_length, int frame, int bitSiz
                 // need to check for second chance if full
                 while (true)
                 {
-                    struct Page old_page = dequeue(pages_queue); 
-                    //check if msb is 0
-                    if ((old_page.referenceBits & (1 << (bitSize - 1)))== 0) //if reference bit is 0 
+                    struct Page old_page = dequeue(pages_queue);
+                    // check if msb is 0
+                    if ((old_page.referenceBits & (1 << (bitSize - 1))) == 0) // if reference bit is 0
                     {
-                        int dirty_bit = old_page.dirtyBit; 
+                        int dirty_bit = old_page.dirtyBit;
                         if (dirty_bit == 1) // count a write back if bit to be replaced is dirty
                         {
                             write_backs++;
                         }
-                        enqueue(pages_queue, *this_page); //enqueue new page 
-                        break; // break as page has been  already been dequed
+                        enqueue(pages_queue, *this_page); // enqueue new page
+                        break;                            // break as page has been  already been dequed
                     }
                     else // otherwise we change the reference bit from 1 to 0 and re enqueue the page until a page with a bit of 0 is found
                     {
-                        old_page.referenceBits -= (1 << (bitSize - 1));
+                        old_page.referenceBits &= ~(1 << (bitSize - 1));
                         enqueue(pages_queue, old_page);
                     }
                 }
-            } else {
+            }
+            else
+            {
                 //  if page is not in queue and queue isn't full, set most significant bit to 1 and enqueue
-                this_page ->referenceBits |= (1 << (bitSize - 1));
+                this_page->referenceBits |= (1 << (bitSize - 1));
                 enqueue(pages_queue, *this_page);
             }
 
-          
-
-            interruptCount++; //update interrupt count and check if it meets criteria yet
-            if (interruptCount == interruptNum){
+            interruptCount++; // update interrupt count and check if it meets criteria yet
+            if (interruptCount == interruptNum)
+            {
                 bitShift(pages_queue); // if so, bit shift every element in the queue by 1 and reset interrupt count
                 interruptCount = 0;
             }
         }
     }
-    int *pfwb = (int *)malloc(2 * sizeof(int)); 
+    int *pfwb = (int *)malloc(2 * sizeof(int));
     pfwb[0] = page_faults;
     pfwb[1] = write_backs;
     return pfwb;
 }
 
-//Will need function to simulate bit shifting after m page references
-void bitShift(struct Queue *clockQueue){
+// Will need function to simulate bit shifting after m page references
+void bitShift(struct Queue *clockQueue)
+{
     struct QueueNode *node = clockQueue->front;
     while (node != NULL)
-        {
-        node->page.referenceBits >>= 1; //shift bits for each page in queue
+    {
+        node->page.referenceBits >>= 1; // shift bits for each page in queue
         node = node->next;
-}
+    }
 }
 
 void secondChance_output(struct Page *references)
 {
-    printf("Second Chance\n");
+    printf("CLK\n");
     printf("%s", p1_table_line1);
     printf("%s", p1_table_line5);
     printf("%s", p1_table_line1);
@@ -404,13 +530,13 @@ void secondChance_output(struct Page *references)
         printf("%s", p1_table_line1);
     }
 
-    printf("Second Chance\n");
+    printf("CLK\n");
     printf("%s", p1_table_line1);
     printf("%s", p1_table_line4);
     printf("%s", p1_table_line1);
 
-     // M fixed to 10, frame fixed to 50 and m incremented from 1 to 32
-     for (int i = 1; i < 33; i++)
+    // M fixed to 10, frame fixed to 50 and m incremented from 1 to 32
+    for (int i = 1; i < 33; i++)
     {
         int *curr_array = secondChance(references, ref_length, 50, i, 10);
         int pf = curr_array[0];
@@ -418,6 +544,4 @@ void secondChance_output(struct Page *references)
         printf(p1_table_line3, i, pf, wb);
         printf("%s", p1_table_line1);
     }
-
-
 }
